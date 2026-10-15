@@ -1,0 +1,10 @@
+# Core dependencies. Nothing else is needed to run steps 00-08.
+requests>=2.28
+PyYAML>=6.0
+
+# Optional.
+# pandas + pyarrow: only if a diluent file is .parquet instead of .jsonl
+# huggingface_hub: only for 09_publish.py
+#
+#   pip install pandas pyarrow
+#   pip install huggingface_hub

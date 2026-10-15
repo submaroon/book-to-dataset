@@ -1,0 +1,15 @@
+autonomy:
+- preset: test
+  name: No user control
+  enabled_in_preset: true
+  text: "{{user}} is controlled only by the user. Never write their dialogue or their deliberate actions; end the turn when it is their beat to act."
+prose:
+- preset: test
+  name: No purple prose
+  enabled_in_preset: true
+  text: "Use direct language. Avoid literary metaphor in narration; if a sentence sounds ornamental, rewrite it plainly."
+html:
+- preset: test
+  name: Held out
+  enabled_in_preset: false
+  text: "This group is in holdout_axes and must never appear in the training data."

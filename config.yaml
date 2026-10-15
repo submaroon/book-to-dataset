@@ -1,0 +1,129 @@
+# Pipeline configuration.
+#
+# One config = one run = one language. For a second language, copy this file,
+# change `lang`, `input.path`, `workdir` and the output names, and run every
+# step with --config config.<lang>.yaml. The two runs are merged at the end with
+# tools/merge_datasets.py.
+#
+# Every value here has a default in pipeline/config.py, so you only need to keep
+# the ones you actually change. The full list with explanations is in that file.
+
+# Language of this run. Selects prompts/<lang>.yaml.
+lang: en
+
+input:
+  # Plain text file. UTF-8 is best; other encodings are detected and reported.
+  path: input/source.txt
+
+# Intermediate files for this run. One workdir per language, never shared.
+workdir: work/en
+
+llm:
+  # Any OpenAI-compatible server. Only /v1/chat/completions is used.
+  #   llama-server / koboldcpp:  http://127.0.0.1:5001
+  #   vLLM:                      http://127.0.0.1:8000
+  base_url: http://127.0.0.1:5001
+  model: local
+  api_key: none
+  temperature: 0.3
+  # Keep this comfortably above the longest scene you expect to convert. Too low
+  # and the model truncates transcripts, which the gate after step 03 catches.
+  max_tokens: 4096
+  retries: 3
+  timeout: 600
+  # 1 for a local single-slot server. 6-8 for a hosted API.
+  workers: 1
+
+segment:
+  # Blocks longer than this go to the LLM for scene boundary detection.
+  # Everything else is segmented structurally, for free. Run 00_inspect.py to
+  # see how much of your file falls on each side of this line.
+  max_block_chars: 14000
+  min_scene_chars: 700
+  max_scene_chars: 11000
+  llm_window_chars: 9000
+  llm_window_overlap: 6
+
+convert:
+  # "auto" = the most talkative character of each scene becomes the played one.
+  # A name here keeps only the scenes where that character speaks.
+  char: auto
+  min_turns: 2
+  # Scenes with less direct speech than this are skipped. Lower it for a source
+  # that is narration-heavy, and expect thinner transcripts.
+  min_dialogue_share: 0.03
+  temperature: 0.4
+
+validate:
+  # Share of the transcript's content words that also occur in the source scene.
+  # This is the main defence against the converter writing its own prose.
+  lexical_overlap_min: 0.55
+  # The model judge. Set to false to run on the cheap lexical filter alone.
+  llm_check: true
+  temperature: 0.1
+
+synth:
+  # Synthetic sessions in the spirit of the source. Without them the adapter
+  # quotes the source instead of generalising from it. Roughly a quarter of the
+  # final dataset is a reasonable target.
+  enabled: true
+  count: 200
+  anchors_per_gen: 2
+  anchor_max_chars: 2500
+  max_anchor_overlap: 0.5
+  dedupe_jaccard: 0.35
+  temperature: 0.9
+  # Leave empty to use the most talkative characters found in step 02, or list
+  # names by hand: ["Name One", "Name Two"]
+  chars: []
+
+format:
+  # Leave empty to use the cards from prompts/<lang>.yaml. Override here to
+  # write your own; [[char]] is substituted with the character name.
+  system_card: ""
+  system_card_core: ""
+  output: dataset_base.jsonl
+
+augment:
+  # Rewrite each transcript under varying format directives, so the model learns
+  # to read the system block instead of ignoring it.
+  enabled: true
+  variants_per_scene: 3
+  keep_original: true
+  min_overlap: 0.55
+  min_distinctive: 0.70
+  temperature: 0.35
+  max_axes_per_variant: 3
+  # Optional behavioural directives, see tools/extract_axes.py. Missing file is
+  # fine — the step then runs on format axes alone.
+  axes_file: axes.yaml
+  output: dataset_aug.jsonl
+  # 0 = every transcript. Set to 20 for a trial run before committing the night.
+  limit: 0
+
+assemble:
+  # "auto" uses the step 07 output if it exists, otherwise the step 06 output.
+  source_input: auto
+
+  diluent:
+    # Third-party roleplay data mixed in so the adapter stays usable outside
+    # your source. Off by default: the files are yours to choose.
+    enabled: false
+    # Local ShareGPT .jsonl or .parquet files.
+    files: []
+    count: 800
+    # Translate the diluent into this run's language. Slow — one call per
+    # message — but resumable.
+    translate: false
+    safety_filter: true
+
+  max_session_chars: 14000
+  output: dataset_final.jsonl
+
+publish:
+  # "your-username/dataset-name". Leave empty and use 09_publish.py --dry-run
+  # until you are ready.
+  repo_id: ""
+  private: true
+  eval_share: 0.05
+  license: other

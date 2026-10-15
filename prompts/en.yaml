@@ -1,0 +1,362 @@
+# English language pack.
+#
+# Everything the pipeline says to the model lives here. To add a language, copy
+# this file to prompts/<code>.yaml, translate the strings, and set `lang:` in
+# the config. No Python changes are needed.
+#
+# Placeholders are written as [[name]]. They are substituted by the step that
+# uses the prompt, and an unknown or missing placeholder stops the run, so a
+# typo cannot silently reach the model. Literal { } braces need no escaping.
+
+meta:
+  name: English
+
+  # The exact word the model is told to use for an unidentifiable speaker.
+  # Step 03 matches against it, so it must be identical in the prompt and here.
+  unknown_speaker: unknown
+
+  # Words that are never a character name. Attribution returns these regularly
+  # and a transcript whose {{char}} is literally "he" is useless.
+  generic_speakers:
+    - i
+    - we
+    - you
+    - he
+    - she
+    - they
+    - it
+    - someone
+    - everyone
+    - all
+    - man
+    - woman
+    - girl
+    - boy
+    - stranger
+    - voice
+    - crowd
+    - narrator
+    - author
+    - observer
+    - first
+    - second
+    - guest
+    - host
+    - both
+
+  # Prefix length for crude stemming in the quality gates. English inflects
+  # little, so a long prefix is safe. Russian needs 5.
+  stem_length: 6
+
+  # Refusal phrases specific to this language, added to the built-in English
+  # list in pipeline/llm.py.
+  refusal_markers: []
+
+  # Words that begin a chapter heading in this language. A line that starts
+  # with one of these and is short enough is treated as a heading and becomes a
+  # free scene boundary. Bare numbers and Roman numerals are recognised for
+  # every language and do not need listing.
+  # One or two lines describing what these prompts are tuned for. The menu
+  # shows it, so that anyone opening the launcher sees what register the
+  # dataset will come out in. Rewrite it whenever you rewrite the prompts —
+  # keeping it here means the description cannot drift away from the thing
+  # it describes.
+  style_note: |
+    The shipped prompts aim at serious, character-driven roleplay: inner
+    reasoning before action, real conflict, choices that cost something.
+    They are not tuned to any particular setting or register.
+
+  chapter_words:
+    - chapter
+    - part
+    - prologue
+    - epilogue
+    - interlude
+    - book
+    - section
+
+  # Used when a name is missing: in scene openers, and when substituting
+  # SillyTavern macros in third-party data.
+  fallback_user: the newcomer
+  fallback_char: the character
+
+# System cards written into the dataset. `full` is the standalone card used by
+# step 06. `core` has every formatting instruction removed and is used by step
+# 07, whose <format> block would otherwise contradict it.
+cards:
+  full: >-
+    You are [[char]] and the scene's narrator. Play [[char]], preserving the
+    voice and atmosphere of the source material; drive the narration, the
+    surroundings and the minor characters, but never act or speak for your
+    interlocutor. Before acting or replying, [[char]] weighs what is happening —
+    show their line of thought and the cost of the choice. Third person for
+    actions and the world, direct speech for dialogue.
+
+  core: >-
+    You are [[char]] and the scene's narrator. Play [[char]], preserving the
+    voice and atmosphere of the source material; drive the narration, the
+    surroundings and the minor characters, but never act or speak for your
+    interlocutor.
+
+# Step 01: scene boundary detection inside long blocks.
+segment:
+  system: |-
+    You mark scene boundaries in prose. A boundary is placed ONLY on an explicit
+    change of location, of time, or of which characters are present. Narrator
+    musings, digressions and continuing dialogue are NOT a new scene — they
+    belong to the current one. If a paragraph opens with a connective (However,
+    But, Yet, Indeed) or refers back to the previous one, there is NO boundary
+    before it. When in doubt, do not mark: an empty result for a fragment is a
+    normal and frequent answer. Reply with valid JSON only.
+
+  user: |-
+    Below are numbered paragraphs. Return JSON {"boundaries": [numbers]} — the
+    numbers of the paragraphs BEFORE which a new scene begins. If the whole
+    fragment is one scene, return {"boundaries": []}. No text except the JSON.
+
+    [[paragraphs]]
+
+  # Appended on the retry when the first answer did not parse.
+  strict_suffix: |-
+
+    IMPORTANT: answer ONLY {"boundaries": [numbers]}, no other text, 60 tokens max.
+
+# Step 02: who is in the scene, and who says what.
+attribute:
+  system: >-
+    You are a careful literary analyst. Work ONLY with the given text and never
+    invent. Answer with strictly valid JSON and no commentary.
+
+  user: |-
+    A scene:
+    ---
+    [[scene]]
+    ---
+    Return JSON:
+    {
+      "characters": ["names of every character present in the scene"],
+      "lines": [{"speaker": "name or 'unknown'", "quote": "first 6-8 words of the line"}]
+    }
+    List every line of direct speech, in order. If the speaker cannot be
+    determined unambiguously from the text, write 'unknown' — do not guess.
+
+# Step 03: scene -> roleplay transcript.
+convert:
+  system: >-
+    You convert prose scenes into roleplay transcripts. The key rule: do NOT
+    paraphrase the narration — carry it over nearly verbatim, changing only what
+    the format requires, such as connectives and pronouns. The voice and
+    atmosphere of the source must be fully preserved. Answer with strictly valid
+    JSON.
+
+  user: |-
+    Scene:
+    ---
+    [[scene]]
+    ---
+    The character being played (char): [[char]]
+    The interlocutor (user): [[user]]
+    Line attribution — use it, do not re-attribute: [[attribution]]
+
+    Build the transcript:
+    1. char turns = that character's lines plus all the narration around them
+       (actions, setting, inner state), carried over from the text nearly
+       verbatim. Lines of other characters, the ones who are not user, are woven
+       into char turns as narration.
+    2. user turns = that character's lines only, bare, with no narration.
+    3. Preserve the order of events. Add nothing of your own.
+
+    JSON: {"turns": [{"role": "char"|"user", "text": "..."}]}
+
+# Step 04: the judge pass over the transcripts.
+validate:
+  system: You are a strict editor. Answer with valid JSON only.
+
+  user: |-
+    The original scene:
+    ---
+    [[scene]]
+    ---
+    The transcript built from it:
+    ---
+    [[transcript]]
+    ---
+    Check it and return JSON:
+    {"voice_preserved": true/false,   is the source's narrative voice preserved
+     "no_invention": true/false,      are there no events or details absent from the scene
+     "split_correct": true/false,     are the lines assigned to the right characters
+     "comment": "one sentence"}
+
+# Step 05: synthetic sessions anchored to the source.
+synth:
+  system: >-
+    You write roleplay sessions. The fragments you are given are a MODEL OF HOW
+    THE CHARACTERS THINK, not a model of prose. Write in your own words, but the
+    character must decide, feel and reason as in the fragments: the same
+    weights, the same logic, the same shape of conflict. In every character turn,
+    before the action or the line, include a layer of inner reasoning — what they
+    notice, which two incompatible wants or principles collide, what the choice
+    costs them. The fork must be real: the outcome is not predetermined, and the
+    character may hold back, snap, evade or change their mind, whatever this
+    character would actually do. Do NOT copy phrases from the fragments and do
+    NOT retell their events — the situation is entirely new. Avoid stock roleplay
+    gestures such as locking eyes, corners of the mouth, heavy sighs, the air
+    thickening or a chill down the spine; invent the staging afresh every time.
+    Keep the speech habits distinct: the diction and rhythm of [[char]] must not
+    match the other characters. Answer with valid JSON only.
+
+  user: |-
+    Fragments showing how [[char]] thinks:
+    [[anchors]]
+
+    New situation: [[situation]].
+
+    Write a roleplay session of [[turns_min]] to [[turns_max]] turns, starting
+    with the interlocutor's turn. Interlocutor turns, role "user", are short:
+    1-3 sentences, a line and/or an action. Turns of [[char]], role "char", are
+    2-6 sentences: third-person narration plus direct speech. Invent the
+    interlocutor yourself, unnamed or with a new name.
+
+    JSON: {"turns": [{"role": "user"|"char", "text": "..."}]}
+
+  # The situation matrix. This is the main lever on what the synthetic part of
+  # your dataset contains — edit it to match your source material. Every entry
+  # is combined with a random character and random anchors, so a dozen entries
+  # already produce a lot of variety.
+  situations:
+    - the interlocutor asks the character an uncomfortable question about their past
+    - the interlocutor objects and argues with the character's beliefs
+    - the interlocutor tries to leave, the character wants to continue
+    - a sudden change of setting interrupts the conversation
+    - the interlocutor reacts with strong emotion and the character must respond
+    - the interlocutor asks the character for help with something difficult
+    - the interlocutor accuses the character of a wrongdoing
+    - the interlocutor shares a secret and waits for a reaction
+    - a mundane detail grows into a conversation about something that matters
+    - the interlocutor pushes the character towards candour
+    - the character has to make a fast decision that carries a moral cost
+    - the interlocutor asks for advice in a situation with no good option
+    - the character discovers the interlocutor has been withholding something
+    - an old obligation resurfaces at the worst possible moment
+
+  # Optional behaviour modifiers. Two empty strings keep a share of generations
+  # unmodified, which is what keeps the ordinary case represented.
+  behavior_mods:
+    - ""
+    - ""
+    - In this scene the character BIDES THEIR TIME, observing without forcing a resolution.
+    - Mid-conversation the character CHANGES TACTICS, having realised the first approach is failing.
+    - "The character answers TERSELY: 1-2 sentences per turn, the thought compressed to a flash."
+    - The character EVADES a direct answer and steers the talk elsewhere, but their thoughts betray them.
+    - The conversation BREAKS OFF before any resolution; the scene ends unresolved.
+    - The character misjudges the interlocutor and realises it as the scene unfolds.
+
+# Step 07: reformatting an existing transcript under format directives.
+augment:
+  system: |-
+    You reformat an existing roleplay transcript to match a given list of format
+    requirements.
+
+    STYLE comes from the REFERENCE, an excerpt of the source material:
+    vocabulary, imagery, rhythm, tone, bluntness. This matters most — the voice
+    must stay the source's.
+    CONTENT comes from the TRANSCRIPT: the same events, the same order, the same
+    lines in meaning, the same decisions, intentions and resolve.
+    You change ONLY the presentation, according to the requirements.
+
+    Forbidden: softening, smoothing over or censoring; making characters politer
+    or less resolute; changing the outcome; adding or removing events; replacing
+    concrete words with vague ones; writing preambles or commentary.
+
+    Answer with strictly valid JSON.
+
+  user: |-
+    STYLE REFERENCE — the source excerpt the transcript was built from:
+    ---
+    [[scene]]
+    ---
+
+    TRANSCRIPT — this is what you reformat:
+    ---
+    [[transcript]]
+    ---
+
+    FORMAT REQUIREMENTS:
+    [[directives]]
+
+    Reformat the char turns to satisfy the requirements. Leave the user turns
+    verbatim, do not touch them. Preserve the number and the order of turns
+    exactly.
+
+    JSON: {"turns": [{"role": "char"|"user", "text": "..."}]}
+
+# Step 08: optional translation of third-party diluent into this language.
+translate:
+  system: >-
+    You translate roleplay sessions into English. Translate precisely and
+    vividly, preserving the formatting — action asterisks, quotes, paragraph
+    breaks — the proper names, and the register of every line. Add nothing, omit
+    nothing, soften nothing. Return ONLY the translation, with no commentary.
+
+# Scene openers. Used when a transcript starts on a character turn and the
+# session therefore needs a human turn in front of it. Chosen deterministically
+# by row id, so the distribution stays even.
+openers:
+  - "*[[user]] ends up near [[char]].*"
+  - "*The scene opens. [[char]] is already there.*"
+  - "*[[user]] seeks [[char]] out for a word.*"
+  - "*A new scene; [[char]] and [[user]], face to face.*"
+  - "*The story continues. [[char]] looks up.*"
+  - "*[[user]] catches [[char]] off guard.*"
+  - "*Somewhere close by — [[char]]. [[user]] comes closer.*"
+  - "*Silence. Then [[char]] notices [[user]].*"
+
+# Short openers for trimmed third-party sessions, which have no character name.
+diluent_openers:
+  - "*The scene continues.*"
+  - "*A new scene begins.*"
+  - "*The conversation starts.*"
+
+# Format axes. An axis is one formatting decision; its values are the mutually
+# exclusive options, and the text is the instruction written into the system
+# block. Delete a value your language does not use — English has no guillemets
+# and no dash-led dialogue, so those values simply are not declared here. An
+# axis with fewer than two values is skipped automatically.
+axes:
+  quotes:
+    double: 'Dialogue in straight double quotes: "line".'
+    plain: Dialogue without quotation marks, woven into the prose.
+
+  emphasis:
+    asterisks: "Actions and emphasis wrapped in asterisks: *like this*."
+    underscore: "Actions and emphasis wrapped in underscores: _like this_."
+    plain: No asterisks or underscores — plain continuous prose.
+
+  person:
+    third: Narrate in the third person.
+    second: Narrate in the second person, addressing the interlocutor as "you".
+    first: Narrate in the first person, from the character.
+
+  tense:
+    past: Use the past tense.
+    present: Use the present tense.
+
+  length:
+    short: Keep each turn under 150 words.
+    medium: Keep each turn between 150 and 300 words.
+    long: Make each turn longer than 300 words.
+
+  paragraphs:
+    dense: Write in dense, continuous paragraphs.
+    airy: Break the text into short paragraphs of 1-2 sentences.
+
+  thoughts:
+    none: Do not break inner thoughts out into a separate block.
+    inline: Weave inner thoughts into the narration as the scene goes.
+    appended: >-
+      At the end of the turn add a short block of the character's thoughts,
+      1-3 fragmentary lines, after a "---" separator.
+
+  name_prefix:
+    clean: Do not start the turn with the character's name.
+    prefixed: Start the turn with the speaker's name and a colon.

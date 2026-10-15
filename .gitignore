@@ -1,0 +1,10 @@
+work/
+input/*.txt
+!input/README.md
+dataset_*.jsonl
+axes.yaml
+DATASET_CARD.md
+__pycache__/
+*.pyc
+config.*.yaml
+!config.example.yaml
