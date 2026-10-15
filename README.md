@@ -1,4 +1,4 @@
-This tool has been generated from Claude. With its help, a dataset for my Boulesis model was created.
+This tool has been generated from Claude. With its help, a dataset for my [Boulesis model](https://huggingface.co/SubMaroon/Boulesis-v2.1-26B-A4B) was created.
 
 # Roleplay dataset pipeline
 
